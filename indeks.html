@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Gerçek Kindle Deneyimi</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <style>
+        :root {
+            /* Gerçek E-ink Ekran Rengi ve Dokusu */
+            --bg-color: #d4d5d1; /* E-ink Pearl/Carta ekranlarının karakteristik gri/krem tonu */
+            --text-color: #1a1a1a; /* Tam siyah değil, e-mürekkep siyahı */
+            --border-color: #888888;
+            /* SVG ile oluşturulmuş, internet gerektirmeyen mikroskobik ekran greni/dokusu */
+            --bg-texture: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.08'/%3E%3C/svg%3E");
+        }
+
+        [data-theme="dark"] {
+            /* Kindle Gece Modu (Inverted) */
+            --bg-color: #1a1a1a;
+            --text-color: #c4c5c1;
+            --border-color: #4a4a4a;
+            --bg-texture: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.03'/%3E%3C/svg%3E");
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Georgia', 'Merriweather', 'Palatino Linotype', 'Book Antiqua', serif;
+            background-color: var(--bg-color);
+            background-image: var(--bg-texture); /* Ekran dokusunu tüm gövdeye uyguluyoruz */
+            color: var(--text-color);
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        /* Üst Panel - Geniş / Alt Panel - Eski Kompakt Hali */
+        .top-panel {
+            background: transparent;
+            padding: 22px 30px; /* Üst panel geniş */
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 10;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            border-bottom: 2px solid var(--border-color);
+        }
+
+        .bottom-panel {
+            background: transparent;
+            padding: 12px 20px; /* Alt panel eski haline döndürüldü */
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 10;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            border-top: 2px solid var(--border-color);
+            gap: 15px;
+        }
+
+        .file-upload-wrapper {
+            position: relative;
+            overflow: hidden;
+            display: inline-block;
+        }
+
+        .file-upload-wrapper input[type=file] {
+            font-size: 100px;
+            position: absolute;
+            left: 0;
+            top: 0;
+            opacity: 0;
+            cursor: pointer;
+        }
+
+        /* Butonlar - Üst geniş, alt standart */
+        .top-panel .btn {
+            background-color: transparent;
+            color: var(--text-color);
+            border: 1px solid var(--border-color);
+            padding: 12px 22px;
+            border-radius: 2px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .bottom-panel .btn {
+            background-color: transparent;
+            color: var(--text-color);
+            border: 1px solid var(--border-color);
+            padding: 8px 16px;
+            border-radius: 2px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .btn:hover {
+            background-color: var(--border-color);
+            color: var(--bg-color);
+        }
+
+        .theme-toggle {
+            background: none;
+            border: none;
+            font-size: 26px;
+            cursor: pointer;
+            color: var(--text-color);
+            opacity: 0.8;
+            filter: grayscale(100%);
+        }
+
+        .page-indicator {
+            position: absolute;
+            top: 85px; /* Üst panele göre ayarlandı */
+            right: 30px;
+            background-color: var(--bg-color);
+            background-image: var(--bg-texture);
+            color: var(--text-color);
+            border: 1px solid var(--border-color);
+            padding: 6px 14px;
+            border-radius: 2px;
+            font-size: 12px;
+            font-weight: bold;
+            font-family: sans-serif;
+            z-index: 20;
+            display: none;
+            pointer-events: none;
+        }
+
+        /* METİN OKUMA ALANI TASARIMI */
+        #text-viewer {
+            flex-grow: 1;
+            overflow-y: auto;
+            padding: 40px 10%; 
+            -webkit-overflow-scrolling: touch;
+            font-size: 21px; 
+            line-height: 1.6; 
+            max-width: 900px; 
+            margin: 0 auto;
+            width: 100%;
+            -webkit-font-smoothing: antialiased;
+            text-rendering: optimizeLegibility;
+        }
+
+        .pdf-page-text {
+            margin-bottom: 30px;
+            text-align: justify; 
+            text-justify: inter-word;
+        }
+
+        .page-divider {
+            text-align: center;
+            color: var(--text-color);
+            font-size: 18px;
+            margin: 40px 0;
+            user-select: none;
+            opacity: 0.5;
+        }
+
+        .page-divider::before {
+            content: "* * *"; 
+            letter-spacing: 8px;
+        }
+
+        .speed-control {
+            flex-grow: 1;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-family: sans-serif;
+            filter: grayscale(100%);
+        }
+
+        input[type="range"] {
+            flex-grow: 1;
+            accent-color: var(--text-color);
+            height: 2px;
+            background: var(--border-color);
+            appearance: none;
+            outline: none;
+        }
+        
+        input[type="range"]::-webkit-slider-thumb {
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            background: var(--bg-color);
+            border: 2px solid var(--text-color);
+            border-radius: 50%;
+            cursor: pointer;
+        }
+        
+        .speed-display {
+            font-family: monospace;
+            font-size: 14px;
+            min-width: 35px;
+            text-align: right;
+            color: var(--text-color);
+            font-weight: bold;
+        }
+
+        #play-pause-btn {
+            min-width: 110px;
+        }
+
+        .loading {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 14px;
+            font-weight: bold;
+            font-family: sans-serif;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            z-index: 30;
+            background: var(--bg-color);
+            background-image: var(--bg-texture);
+            border: 2px solid var(--text-color);
+            padding: 15px 25px;
+            color: var(--text-color);
+        }
+
+        @media (max-width: 768px) {
+            #text-viewer {
+                padding: 30px 20px;
+                font-size: 19px;
+            }
+        }
+
+        @media (max-width: 600px) {
+            .bottom-panel {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            .speed-control {
+                width: 100%;
+            }
+            #play-pause-btn {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body data-theme="light">
+
+    <div class="top-panel">
+        <div class="file-upload-wrapper">
+            <button class="btn">PDF SEÇ</button>
+            <input type="file" id="file-input" accept="application/pdf">
+        </div>
+        <button class="theme-toggle" id="theme-btn" title="Temayı Değiştir">🌙</button>
+    </div>
+
+    <div class="page-indicator" id="page-indicator">1 / ?</div>
+    <div class="loading" id="loading-indicator">YÜKLENİYOR...</div>
+
+    <div id="text-viewer"></div>
+
+    <div class="bottom-panel">
+        <button id="play-pause-btn" class="btn">▶ BAŞLAT</button>
+        <div class="speed-control">
+            <span>🐢</span>
+            <input type="range" id="speed-slider" min="0" max="1.5" step="0.01" value="0.05">
+            <span>🐇</span>
+            <span class="speed-display" id="speed-display">0.05</span>
+        </div>
+    </div>
+
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+
+        const fileInput = document.getElementById('file-input');
+        const textViewer = document.getElementById('text-viewer');
+        const playPauseBtn = document.getElementById('play-pause-btn');
+        const speedSlider = document.getElementById('speed-slider');
+        const speedDisplay = document.getElementById('speed-display');
+        const themeBtn = document.getElementById('theme-btn');
+        const loadingIndicator = document.getElementById('loading-indicator');
+        const pageIndicator = document.getElementById('page-indicator');
+
+        let pdfDoc = null;
+        let isScrolling = false;
+        let scrollAnimationId = null;
+        let currentScrollY = 0;
+        let totalPages = 0;
+
+        // Tema Değiştirme
+        themeBtn.addEventListener('click', () => {
+            const body = document.body;
+            body.setAttribute('data-theme', body.getAttribute('data-theme') === 'light' ? 'dark' : 'light');
+            themeBtn.textContent = body.getAttribute('data-theme') === 'light' ? '🌙' : '☀️';
+        });
+
+        speedSlider.addEventListener('input', (e) => {
+            speedDisplay.textContent = e.target.value;
+        });
+
+        // Sayfa numarası takibi
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    pageIndicator.textContent = `${entry.target.dataset.pageNo} / ${totalPages}`;
+                }
+            });
+        }, {
+            root: textViewer,
+            rootMargin: '-40% 0px -40% 0px' 
+        });
+
+        fileInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file.type !== 'application/pdf') return alert('Lütfen geçerli bir PDF dosyası seçin.');
+
+            const fileReader = new FileReader();
+            
+            fileReader.onload = function() {
+                const typedarray = new Uint8Array(this.result);
+                textViewer.innerHTML = ''; 
+                loadingIndicator.style.display = 'block';
+                pageIndicator.style.display = 'none';
+                stopAutoScroll();
+                currentScrollY = 0;
+
+                pdfjsLib.getDocument(typedarray).promise.then(pdf => {
+                    pdfDoc = pdf;
+                    totalPages = pdf.numPages;
+                    pageIndicator.textContent = `1 / ${totalPages}`;
+                    pageIndicator.style.display = 'block';
+                    extractAllText(); 
+                }).catch(err => {
+                    alert('PDF yüklenirken bir hata oluştu.');
+                    loadingIndicator.style.display = 'none';
+                    console.error(err);
+                });
+            };
+            fileReader.readAsArrayBuffer(file);
+        });
+
+        async function extractAllText() {
+            for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
+                loadingIndicator.textContent = `SAYFA ${pageNum} İŞLENİYOR...`;
+                
+                const page = await pdfDoc.getPage(pageNum);
+                const textContent = await page.getTextContent();
+                
+                const pageDiv = document.createElement('div');
+                pageDiv.className = 'pdf-page-text';
+                pageDiv.dataset.pageNo = pageNum;
+                
+                let pageText = '';
+                let lastY = null;
+                
+                textContent.items.forEach(item => {
+                    if (lastY !== null && Math.abs(lastY - item.transform[5]) > 5) {
+                        pageText += '<br>';
+                    }
+                    pageText += item.str + ' ';
+                    lastY = item.transform[5];
+                });
+                
+                pageDiv.innerHTML = pageText;
+                textViewer.appendChild(pageDiv);
+                
+                if(pageNum !== totalPages) {
+                    const divider = document.createElement('div');
+                    divider.className = 'page-divider';
+                    textViewer.appendChild(divider);
+                }
+                
+                observer.observe(pageDiv);
+            }
+            loadingIndicator.style.display = 'none';
+        }
+
+        function autoScroll() {
+            if (!isScrolling) return;
+
+            const speed = parseFloat(speedSlider.value);
+            if (speed > 0) {
+                currentScrollY += speed;
+                textViewer.scrollTop = currentScrollY;
+            }
+
+            if (textViewer.scrollTop + textViewer.clientHeight >= textViewer.scrollHeight - 1) {
+                stopAutoScroll();
+            } else {
+                scrollAnimationId = requestAnimationFrame(autoScroll);
+            }
+        }
+
+        function startAutoScroll() {
+            if (!pdfDoc) return alert('Lütfen önce bir PDF yükleyin.');
+            isScrolling = true;
+            currentScrollY = textViewer.scrollTop; 
+            playPauseBtn.textContent = '⏸ DURAKLAT';
+            autoScroll();
+        }
+
+        function stopAutoScroll() {
+            isScrolling = false;
+            playPauseBtn.textContent = '▶ BAŞLAT';
+            if (scrollAnimationId) cancelAnimationFrame(scrollAnimationId);
+        }
+
+        playPauseBtn.addEventListener('click', () => {
+            isScrolling ? stopAutoScroll() : startAutoScroll();
+        });
+
+        textViewer.addEventListener('scroll', () => {
+            if (!isScrolling) {
+                currentScrollY = textViewer.scrollTop; 
+            }
+        }, { passive: true });
+
+        textViewer.addEventListener('touchstart', stopAutoScroll, { passive: true });
+        textViewer.addEventListener('wheel', () => {
+            if(isScrolling) stopAutoScroll();
+        }, { passive: true });
+
+        window.addEventListener('resize', () => {
+            if(isScrolling) stopAutoScroll();
+            currentScrollY = textViewer.scrollTop;
+        });
+
+    </script>
+</body>
+</html>
